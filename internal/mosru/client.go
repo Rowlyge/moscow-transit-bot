@@ -4,6 +4,7 @@ import (
 "encoding/json"
 "fmt"
 "io"
+"log"
 "net/http"
 "net/url"
 "time"
@@ -28,10 +29,6 @@ Timeout: 30 * time.Second,
 }
 }
 
-// FetchRows fetches all rows for a dataset from the /rows endpoint,
-// paginating via $skip/$top until an empty page is returned.
-// Rows are unmarshalled into rawRow (with Cells left as json.RawMessage)
-// so callers can decode Cells into their own typed struct.
 func (c *Client) FetchRows(datasetID int) ([]RawRow, error) {
 var all []RawRow
 skip := 0
@@ -42,10 +39,15 @@ q := url.Values{}
 q.Set("api_key", c.apiKey)
 q.Set("$skip", fmt.Sprintf("%d", skip))
 q.Set("$top", fmt.Sprintf("%d", pageSize))
+fullURL := endpoint + "?" + q.Encode()
 
 var page []RawRow
-if err := c.getJSON(endpoint+"?"+q.Encode(), &page); err != nil {
-return nil, fmt.Errorf("fetching rows for dataset %d (skip=%d): %w", datasetID, skip, err)
+desc := fmt.Sprintf("dataset %d rows (skip=%d)", datasetID, skip)
+err := withRetry(desc, func() error {
+return c.getJSON(fullURL, &page)
+})
+if err != nil {
+return nil, err
 }
 
 if len(page) == 0 {
@@ -53,14 +55,13 @@ break
 }
 
 all = append(all, page...)
+log.Printf("  ...fetched page at skip=%d (%d rows so far)", skip, len(all))
 skip += pageSize
 }
 
 return all, nil
 }
 
-// FetchFeatures fetches all features (rows with geometry) for a dataset
-// from the /features endpoint, paginating the same way as FetchRows.
 func (c *Client) FetchFeatures(datasetID int) ([]Feature, error) {
 var all []Feature
 skip := 0
@@ -71,10 +72,15 @@ q := url.Values{}
 q.Set("api_key", c.apiKey)
 q.Set("$skip", fmt.Sprintf("%d", skip))
 q.Set("$top", fmt.Sprintf("%d", pageSize))
+fullURL := endpoint + "?" + q.Encode()
 
 var resp FeatureCollection
-if err := c.getJSON(endpoint+"?"+q.Encode(), &resp); err != nil {
-return nil, fmt.Errorf("fetching features for dataset %d (skip=%d): %w", datasetID, skip, err)
+desc := fmt.Sprintf("dataset %d features (skip=%d)", datasetID, skip)
+err := withRetry(desc, func() error {
+return c.getJSON(fullURL, &resp)
+})
+if err != nil {
+return nil, err
 }
 
 if len(resp.Features) == 0 {
@@ -82,6 +88,7 @@ break
 }
 
 all = append(all, resp.Features...)
+log.Printf("  ...fetched page at skip=%d (%d features so far)", skip, len(all))
 skip += pageSize
 }
 

@@ -14,6 +14,7 @@ db "github.com/Rowlyge/moscow-transit-bot/internal/db"
 const (
 datasetIDRoutes   = 60664
 datasetIDCalendar = 60666
+datasetIDTrips    = 60665
 )
 
 func main() {
@@ -39,6 +40,10 @@ log.Fatalf("syncing routes: %v", err)
 
 if err := syncCalendar(ctx, client, queries); err != nil {
 log.Fatalf("syncing calendar: %v", err)
+}
+
+if err := syncTrips(ctx, client, pool, queries); err != nil {
+log.Fatalf("syncing trips: %v", err)
 }
 
 log.Println("ETL run complete")
@@ -109,5 +114,58 @@ return err
 }
 
 log.Printf("upserted %d calendar entries", len(parsed))
+return nil
+}
+
+func syncTrips(ctx context.Context, client *mosru.Client, pool *pgxpool.Pool, queries *db.Queries) error {
+log.Println("fetching trips...")
+
+rows, err := client.FetchRows(datasetIDTrips)
+if err != nil {
+return err
+}
+log.Printf("fetched %d raw rows", len(rows))
+
+parsed, err := mosru.ParseTrips(rows)
+if err != nil {
+return err
+}
+log.Printf("parsed %d trips", len(parsed))
+
+// Small, known data-quality gap in data.mos.ru: routes/calendar and
+// trips datasets are not always perfectly in sync between releases,
+// so a handful of trips can reference route_ids or service_ids that
+// don't exist yet. We skip those rather than failing the whole sync.
+knownRoutes, err := db.LoadExistingIDs(ctx, pool, "routes", "route_id")
+if err != nil {
+return err
+}
+knownServices, err := db.LoadExistingIDs(ctx, pool, "calendar", "service_id")
+if err != nil {
+return err
+}
+
+upserted := 0
+skipped := 0
+for _, t := range parsed {
+if !knownRoutes[t.RouteID] || !knownServices[t.ServiceID] {
+skipped++
+continue
+}
+
+err := queries.UpsertTrip(ctx, db.UpsertTripParams{
+TripID:       t.TripID,
+RouteID:      t.RouteID,
+ServiceID:    t.ServiceID,
+TripHeadsign: t.TripHeadsign,
+DirectionID:  t.DirectionID,
+})
+if err != nil {
+return err
+}
+upserted++
+}
+
+log.Printf("upserted %d trips, skipped %d (missing route_id/service_id in source data)", upserted, skipped)
 return nil
 }
