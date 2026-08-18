@@ -12,7 +12,8 @@ db "github.com/Rowlyge/moscow-transit-bot/internal/db"
 )
 
 const (
-datasetIDRoutes = 60664
+datasetIDRoutes   = 60664
+datasetIDCalendar = 60666
 )
 
 func main() {
@@ -34,6 +35,10 @@ client := mosru.NewClient(cfg.MosAPIKey)
 
 if err := syncRoutes(ctx, client, queries); err != nil {
 log.Fatalf("syncing routes: %v", err)
+}
+
+if err := syncCalendar(ctx, client, queries); err != nil {
+log.Fatalf("syncing calendar: %v", err)
 }
 
 log.Println("ETL run complete")
@@ -67,5 +72,42 @@ return err
 }
 
 log.Printf("upserted %d routes", len(parsed))
+return nil
+}
+
+func syncCalendar(ctx context.Context, client *mosru.Client, queries *db.Queries) error {
+log.Println("fetching calendar...")
+
+rows, err := client.FetchRows(datasetIDCalendar)
+if err != nil {
+return err
+}
+log.Printf("fetched %d raw rows", len(rows))
+
+parsed, err := mosru.ParseCalendar(rows)
+if err != nil {
+return err
+}
+log.Printf("parsed %d calendar entries", len(parsed))
+
+for _, c := range parsed {
+err := queries.UpsertCalendar(ctx, db.UpsertCalendarParams{
+ServiceID: c.ServiceID,
+Monday:    c.Monday,
+Tuesday:   c.Tuesday,
+Wednesday: c.Wednesday,
+Thursday:  c.Thursday,
+Friday:    c.Friday,
+Saturday:  c.Saturday,
+Sunday:    c.Sunday,
+StartDate: c.StartDate,
+EndDate:   c.EndDate,
+})
+if err != nil {
+return err
+}
+}
+
+log.Printf("upserted %d calendar entries", len(parsed))
 return nil
 }
