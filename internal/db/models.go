@@ -39,12 +39,13 @@ type Stop struct {
 }
 
 type StopTime struct {
-	StopTimesID   string `json:"stop_times_id"`
-	TripID        string `json:"trip_id"`
-	StopID        string `json:"stop_id"`
-	ArrivalTime   string `json:"arrival_time"`
-	DepartureTime string `json:"departure_time"`
-	StopSequence  int32  `json:"stop_sequence"`
+	StopTimesIDRaw string `json:"stop_times_id_raw"`
+	TripID         string `json:"trip_id"`
+	StopID         string `json:"stop_id"`
+	ArrivalTime    string `json:"arrival_time"`
+	DepartureTime  string `json:"departure_time"`
+	StopSequence   int32  `json:"stop_sequence"`
+	GlobalID       int64  `json:"global_id"`
 }
 
 type Trip struct {

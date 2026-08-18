@@ -73,28 +73,31 @@ func (q *Queries) GetUpcomingArrivalsForStop(ctx context.Context, arg GetUpcomin
 }
 
 const upsertStopTime = `-- name: UpsertStopTime :exec
-INSERT INTO stop_times (stop_times_id, trip_id, stop_id, arrival_time, departure_time, stop_sequence)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (stop_times_id) DO UPDATE SET
-    trip_id         = EXCLUDED.trip_id,
-    stop_id          = EXCLUDED.stop_id,
-    arrival_time     = EXCLUDED.arrival_time,
-    departure_time   = EXCLUDED.departure_time,
-    stop_sequence    = EXCLUDED.stop_sequence
+INSERT INTO stop_times (global_id, stop_times_id_raw, trip_id, stop_id, arrival_time, departure_time, stop_sequence)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (global_id) DO UPDATE SET
+    stop_times_id_raw = EXCLUDED.stop_times_id_raw,
+    trip_id            = EXCLUDED.trip_id,
+    stop_id             = EXCLUDED.stop_id,
+    arrival_time        = EXCLUDED.arrival_time,
+    departure_time      = EXCLUDED.departure_time,
+    stop_sequence        = EXCLUDED.stop_sequence
 `
 
 type UpsertStopTimeParams struct {
-	StopTimesID   string `json:"stop_times_id"`
-	TripID        string `json:"trip_id"`
-	StopID        string `json:"stop_id"`
-	ArrivalTime   string `json:"arrival_time"`
-	DepartureTime string `json:"departure_time"`
-	StopSequence  int32  `json:"stop_sequence"`
+	GlobalID       int64  `json:"global_id"`
+	StopTimesIDRaw string `json:"stop_times_id_raw"`
+	TripID         string `json:"trip_id"`
+	StopID         string `json:"stop_id"`
+	ArrivalTime    string `json:"arrival_time"`
+	DepartureTime  string `json:"departure_time"`
+	StopSequence   int32  `json:"stop_sequence"`
 }
 
 func (q *Queries) UpsertStopTime(ctx context.Context, arg UpsertStopTimeParams) error {
 	_, err := q.db.Exec(ctx, upsertStopTime,
-		arg.StopTimesID,
+		arg.GlobalID,
+		arg.StopTimesIDRaw,
 		arg.TripID,
 		arg.StopID,
 		arg.ArrivalTime,
