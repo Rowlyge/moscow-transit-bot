@@ -21,6 +21,12 @@ type Calendar struct {
 	EndDate   pgtype.Date `json:"end_date"`
 }
 
+type EtlCheckpoint struct {
+	DatasetName string             `json:"dataset_name"`
+	LastSkip    int32              `json:"last_skip"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Route struct {
 	RouteID        string  `json:"route_id"`
 	RouteShortName string  `json:"route_short_name"`
@@ -46,6 +52,16 @@ type StopTime struct {
 	DepartureTime  string `json:"departure_time"`
 	StopSequence   int32  `json:"stop_sequence"`
 	GlobalID       int64  `json:"global_id"`
+}
+
+type StopTimesStaging struct {
+	GlobalID       *int64  `json:"global_id"`
+	StopTimesIDRaw *string `json:"stop_times_id_raw"`
+	TripID         *string `json:"trip_id"`
+	StopID         *string `json:"stop_id"`
+	ArrivalTime    *string `json:"arrival_time"`
+	DepartureTime  *string `json:"departure_time"`
+	StopSequence   *int32  `json:"stop_sequence"`
 }
 
 type Trip struct {

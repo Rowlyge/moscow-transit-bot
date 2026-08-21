@@ -12,6 +12,8 @@ ON CONFLICT (stop_id) DO UPDATE SET
 SELECT * FROM stops WHERE stop_id = $1;
 
 -- name: FindNearestStops :many
+-- transport_type can hold combined values like "Автобус, Трамвай", so we
+-- match with ILIKE rather than equality (see ETL notes on dataset 60662).
 SELECT
     stop_id,
     stop_name,
@@ -19,8 +21,8 @@ SELECT
     stop_lon,
     transport_type,
     street,
-    ST_Distance(geom, ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8)::geography) AS distance_meters
+    ST_Distance(geom, ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8)::geography)::float8 AS distance_meters
 FROM stops
-WHERE transport_type = 'Автобус'
+WHERE transport_type ILIKE '%' || sqlc.arg(transport_type_filter)::text || '%'
 ORDER BY geom <-> ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8)::geography
 LIMIT sqlc.arg(limit_count);

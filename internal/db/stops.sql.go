@@ -17,31 +17,39 @@ SELECT
     stop_lon,
     transport_type,
     street,
-    ST_Distance(geom, ST_MakePoint($1::float8, $2::float8)::geography) AS distance_meters
+    ST_Distance(geom, ST_MakePoint($1::float8, $2::float8)::geography)::float8 AS distance_meters
 FROM stops
-WHERE transport_type = 'Автобус'
+WHERE transport_type ILIKE '%' || $3::text || '%'
 ORDER BY geom <-> ST_MakePoint($1::float8, $2::float8)::geography
-LIMIT $3
+LIMIT $4
 `
 
 type FindNearestStopsParams struct {
-	Lon        float64 `json:"lon"`
-	Lat        float64 `json:"lat"`
-	LimitCount int32   `json:"limit_count"`
+	Lon                 float64 `json:"lon"`
+	Lat                 float64 `json:"lat"`
+	TransportTypeFilter string  `json:"transport_type_filter"`
+	LimitCount          int32   `json:"limit_count"`
 }
 
 type FindNearestStopsRow struct {
-	StopID         string      `json:"stop_id"`
-	StopName       string      `json:"stop_name"`
-	StopLat        float64     `json:"stop_lat"`
-	StopLon        float64     `json:"stop_lon"`
-	TransportType  *string     `json:"transport_type"`
-	Street         *string     `json:"street"`
-	DistanceMeters interface{} `json:"distance_meters"`
+	StopID         string  `json:"stop_id"`
+	StopName       string  `json:"stop_name"`
+	StopLat        float64 `json:"stop_lat"`
+	StopLon        float64 `json:"stop_lon"`
+	TransportType  *string `json:"transport_type"`
+	Street         *string `json:"street"`
+	DistanceMeters float64 `json:"distance_meters"`
 }
 
+// transport_type can hold combined values like "Автобус, Трамвай", so we
+// match with ILIKE rather than equality (see ETL notes on dataset 60662).
 func (q *Queries) FindNearestStops(ctx context.Context, arg FindNearestStopsParams) ([]FindNearestStopsRow, error) {
-	rows, err := q.db.Query(ctx, findNearestStops, arg.Lon, arg.Lat, arg.LimitCount)
+	rows, err := q.db.Query(ctx, findNearestStops,
+		arg.Lon,
+		arg.Lat,
+		arg.TransportTypeFilter,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}

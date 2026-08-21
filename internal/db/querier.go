@@ -9,9 +9,14 @@ import (
 )
 
 type Querier interface {
+	// transport_type can hold combined values like "Автобус, Трамвай", so we
+	// match with ILIKE rather than equality (see ETL notes on dataset 60662).
 	FindNearestStops(ctx context.Context, arg FindNearestStopsParams) ([]FindNearestStopsRow, error)
 	GetActiveServiceIDsToday(ctx context.Context, arg GetActiveServiceIDsTodayParams) ([]string, error)
 	GetStopByID(ctx context.Context, stopID string) (Stop, error)
+	// arrival_time is stored as TEXT (HH:MM:SS, zero-padded, can exceed 24:00:00
+	// for trips spanning midnight per GTFS spec), so lexicographic comparison
+	// and ordering work correctly here without casting to a time type.
 	GetUpcomingArrivalsForStop(ctx context.Context, arg GetUpcomingArrivalsForStopParams) ([]GetUpcomingArrivalsForStopRow, error)
 	UpsertCalendar(ctx context.Context, arg UpsertCalendarParams) error
 	UpsertRoute(ctx context.Context, arg UpsertRouteParams) error
