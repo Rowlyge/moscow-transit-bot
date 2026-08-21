@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	datasetIDStops    = 60662
-	datasetIDRoutes   = 60664
-	datasetIDCalendar = 60666
-	datasetIDTrips    = 60665
+	datasetIDRoutes    = 60664
+	datasetIDCalendar  = 60666
+	datasetIDTrips     = 60665
+	datasetIDStops     = 60662
+	datasetIDStopTimes = 60661
 )
 
 func main() {
@@ -49,6 +50,10 @@ func main() {
 
 	if err := syncStops(ctx, client, queries); err != nil {
 		log.Fatalf("syncing stops: %v", err)
+	}
+
+	if err := syncStopTimes(ctx, client, pool); err != nil {
+		log.Fatalf("syncing stop_times: %v", err)
 	}
 
 	log.Println("ETL run complete")
@@ -137,10 +142,6 @@ func syncTrips(ctx context.Context, client *mosru.Client, pool *pgxpool.Pool, qu
 	}
 	log.Printf("parsed %d trips", len(parsed))
 
-	// Small, known data-quality gap in data.mos.ru: routes/calendar and
-	// trips datasets are not always perfectly in sync between releases,
-	// so a handful of trips can reference route_ids or service_ids that
-	// don't exist yet. We skip those rather than failing the whole sync.
 	knownRoutes, err := db.LoadExistingIDs(ctx, pool, "routes", "route_id")
 	if err != nil {
 		return err
@@ -205,5 +206,99 @@ func syncStops(ctx context.Context, client *mosru.Client, queries *db.Queries) e
 	}
 
 	log.Printf("upserted %d stops", len(parsed))
+	return nil
+}
+
+const stopTimesCheckpointKey = "stop_times"
+
+func syncStopTimes(ctx context.Context, client *mosru.Client, pool *pgxpool.Pool) error {
+	startSkip, err := db.GetCheckpoint(ctx, pool, stopTimesCheckpointKey)
+	if err != nil {
+		return err
+	}
+	if startSkip > 0 {
+		log.Printf("resuming stop_times sync from skip=%d (checkpoint found)", startSkip)
+	} else {
+		log.Println("fetching stop_times (streaming, batch-inserting as we go)...")
+	}
+
+	const flushEvery = 20 // pages per staging flush (~10,000 rows at pageSize=500)
+
+	var stagingBuf []db.StopTimeStagingRow
+	pagesSinceFlush := 0
+	totalFetched := 0
+	totalInserted := int64(0)
+	totalDropped := int64(0)
+	lastSkip := startSkip
+
+	flush := func(checkpointSkip int) error {
+		if len(stagingBuf) == 0 {
+			return nil
+		}
+		if _, err := db.BulkInsertStopTimesStaging(ctx, pool, stagingBuf); err != nil {
+			return err
+		}
+		inserted, dropped, err := db.FlushStopTimesStaging(ctx, pool)
+		if err != nil {
+			return err
+		}
+		totalInserted += inserted
+		totalDropped += dropped
+		stagingBuf = stagingBuf[:0]
+		pagesSinceFlush = 0
+
+		// Save progress AFTER a successful flush, so a crash never
+		// leaves the checkpoint ahead of what's actually in the DB.
+		if err := db.SaveCheckpoint(ctx, pool, stopTimesCheckpointKey, checkpointSkip); err != nil {
+			return err
+		}
+
+		log.Printf("  ...flushed batch: %d fetched so far, %d inserted total, %d dropped total, checkpoint=%d", totalFetched, totalInserted, totalDropped, checkpointSkip)
+		return nil
+	}
+
+	err = client.FetchRowsStreaming(datasetIDStopTimes, startSkip, func(page []mosru.RawRow, currentSkip int) error {
+		parsed, err := mosru.ParseStopTimes(page)
+		if err != nil {
+			return err
+		}
+
+		for _, p := range parsed {
+			stagingBuf = append(stagingBuf, db.StopTimeStagingRow{
+				GlobalID:       p.GlobalID,
+				StopTimesIDRaw: p.StopTimesRaw,
+				TripID:         p.TripID,
+				StopID:         p.StopID,
+				ArrivalTime:    p.ArrivalTime,
+				DepartureTime:  p.DepartureTime,
+				StopSequence:   p.StopSequence,
+			})
+		}
+		totalFetched += len(parsed)
+		pagesSinceFlush++
+		lastSkip = currentSkip
+
+		if pagesSinceFlush >= flushEvery {
+			// checkpoint = next page to fetch after this one
+			return flush(currentSkip + 500)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// flush any remainder smaller than a full batch
+	if err := flush(lastSkip + 500); err != nil {
+		return err
+	}
+
+	// Fully done — clear the checkpoint so a future run starts fresh
+	// (e.g. next week's scheduled sync should re-scan from skip=0).
+	if err := db.ClearCheckpoint(ctx, pool, stopTimesCheckpointKey); err != nil {
+		return err
+	}
+
+	log.Printf("stop_times sync complete: %d fetched, %d inserted, %d dropped (missing trip_id/stop_id)", totalFetched, totalInserted, totalDropped)
 	return nil
 }

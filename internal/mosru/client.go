@@ -95,6 +95,44 @@ skip += pageSize
 return all, nil
 }
 
+// FetchRowsStreaming works like FetchRows, but instead of accumulating
+// all rows in memory, it invokes onPage after each page is fetched,
+// starting from startSkip (pass 0 for a fresh run, or a saved
+// checkpoint to resume a previously interrupted run).
+func (c *Client) FetchRowsStreaming(datasetID int, startSkip int, onPage func(page []RawRow, currentSkip int) error) error {
+skip := startSkip
+
+for {
+endpoint := fmt.Sprintf("%s/datasets/%d/rows", baseURL, datasetID)
+q := url.Values{}
+q.Set("api_key", c.apiKey)
+q.Set("$skip", fmt.Sprintf("%d", skip))
+q.Set("$top", fmt.Sprintf("%d", pageSize))
+fullURL := endpoint + "?" + q.Encode()
+
+var page []RawRow
+desc := fmt.Sprintf("dataset %d rows (skip=%d)", datasetID, skip)
+err := withRetry(desc, func() error {
+return c.getJSON(fullURL, &page)
+})
+if err != nil {
+return err
+}
+
+if len(page) == 0 {
+break
+}
+
+if err := onPage(page, skip); err != nil {
+return fmt.Errorf("processing page at skip=%d: %w", skip, err)
+}
+
+skip += pageSize
+}
+
+return nil
+}
+
 func (c *Client) getJSON(url string, out interface{}) error {
 resp, err := c.httpClient.Get(url)
 if err != nil {
