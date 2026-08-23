@@ -95,6 +95,70 @@ func (q *Queries) GetStopByID(ctx context.Context, stopID string) (Stop, error) 
 	return i, err
 }
 
+const searchStopsByName = `-- name: SearchStopsByName :many
+SELECT
+    stop_id,
+    stop_name,
+    stop_lat,
+    stop_lon,
+    transport_type,
+    street
+FROM stops
+WHERE transport_type ILIKE '%' || $1::text || '%'
+  AND stop_name ILIKE '%' || $2::text || '%'
+ORDER BY
+    (lower(stop_name) = lower($2::text)) DESC,
+    length(stop_name) ASC,
+    stop_name ASC
+LIMIT $3
+`
+
+type SearchStopsByNameParams struct {
+	TransportTypeFilter string `json:"transport_type_filter"`
+	NameQuery           string `json:"name_query"`
+	LimitCount          int32  `json:"limit_count"`
+}
+
+type SearchStopsByNameRow struct {
+	StopID        string  `json:"stop_id"`
+	StopName      string  `json:"stop_name"`
+	StopLat       float64 `json:"stop_lat"`
+	StopLon       float64 `json:"stop_lon"`
+	TransportType *string `json:"transport_type"`
+	Street        *string `json:"street"`
+}
+
+// Case-insensitive substring match on stop_name. Exact matches (after
+// lowercasing) are ranked first, then shorter names (more likely to be
+// what the person meant when they typed a partial name), then alphabetically
+// for stable ordering among ties.
+func (q *Queries) SearchStopsByName(ctx context.Context, arg SearchStopsByNameParams) ([]SearchStopsByNameRow, error) {
+	rows, err := q.db.Query(ctx, searchStopsByName, arg.TransportTypeFilter, arg.NameQuery, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchStopsByNameRow
+	for rows.Next() {
+		var i SearchStopsByNameRow
+		if err := rows.Scan(
+			&i.StopID,
+			&i.StopName,
+			&i.StopLat,
+			&i.StopLon,
+			&i.TransportType,
+			&i.Street,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertStop = `-- name: UpsertStop :exec
 INSERT INTO stops (stop_id, stop_name, stop_lat, stop_lon, transport_type, street)
 VALUES ($1, $2, $3, $4, $5, $6)

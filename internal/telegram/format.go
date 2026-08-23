@@ -8,13 +8,14 @@ import (
 "github.com/Rowlyge/moscow-transit-bot/internal/matching"
 )
 
-// FormatArrivals renders a list of nearby stops with their upcoming
-// arrivals as a Telegram message. Stops with no upcoming arrivals are
-// shown with a note rather than omitted, so the person understands why
-// the closest stop might not have anything listed.
+// FormatArrivals renders a list of stops with their upcoming arrivals as
+// a Telegram message. Stops with no upcoming arrivals are shown with a
+// note rather than omitted, so the person understands why a stop might
+// not have anything listed. Distance is only shown when known (geo
+// search); name search results omit it.
 func FormatArrivals(results []matching.StopResult) string {
 if len(results) == 0 {
-return "Рядом не найдено автобусных остановок."
+return "Ничего не найдено."
 }
 
 var b strings.Builder
@@ -25,7 +26,11 @@ if i > 0 {
 b.WriteString("\n")
 }
 
-fmt.Fprintf(&b, "📍 %s (%s)\n", stop.StopName, formatDistance(stop.DistanceMeters))
+if stop.DistanceMeters != nil {
+fmt.Fprintf(&b, "📍 %s (%s)\n", stop.StopName, formatDistance(*stop.DistanceMeters))
+} else {
+fmt.Fprintf(&b, "📍 %s\n", stop.StopName)
+}
 
 if len(stop.Arrivals) == 0 {
 b.WriteString("нет данных о рейсах\n")
@@ -58,8 +63,6 @@ if _, err := fmt.Sscanf(arrivalTimeStr, "%d:%d:%d", &h, &m, &s); err != nil {
 return 0
 }
 
-// GTFS allows hours >= 24 for trips past midnight; normalize by
-// treating them as the next day for the purposes of this subtraction.
 daysAhead := h / 24
 normalizedHour := h % 24
 

@@ -26,3 +26,24 @@ FROM stops
 WHERE transport_type ILIKE '%' || sqlc.arg(transport_type_filter)::text || '%'
 ORDER BY geom <-> ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8)::geography
 LIMIT sqlc.arg(limit_count);
+
+-- name: SearchStopsByName :many
+-- Case-insensitive substring match on stop_name. Exact matches (after
+-- lowercasing) are ranked first, then shorter names (more likely to be
+-- what the person meant when they typed a partial name), then alphabetically
+-- for stable ordering among ties.
+SELECT
+    stop_id,
+    stop_name,
+    stop_lat,
+    stop_lon,
+    transport_type,
+    street
+FROM stops
+WHERE transport_type ILIKE '%' || sqlc.arg(transport_type_filter)::text || '%'
+  AND stop_name ILIKE '%' || sqlc.arg(name_query)::text || '%'
+ORDER BY
+    (lower(stop_name) = lower(sqlc.arg(name_query)::text)) DESC,
+    length(stop_name) ASC,
+    stop_name ASC
+LIMIT sqlc.arg(limit_count);

@@ -18,6 +18,11 @@ type Querier interface {
 	// for trips spanning midnight per GTFS spec), so lexicographic comparison
 	// and ordering work correctly here without casting to a time type.
 	GetUpcomingArrivalsForStop(ctx context.Context, arg GetUpcomingArrivalsForStopParams) ([]GetUpcomingArrivalsForStopRow, error)
+	// Case-insensitive substring match on stop_name. Exact matches (after
+	// lowercasing) are ranked first, then shorter names (more likely to be
+	// what the person meant when they typed a partial name), then alphabetically
+	// for stable ordering among ties.
+	SearchStopsByName(ctx context.Context, arg SearchStopsByNameParams) ([]SearchStopsByNameRow, error)
 	UpsertCalendar(ctx context.Context, arg UpsertCalendarParams) error
 	UpsertRoute(ctx context.Context, arg UpsertRouteParams) error
 	UpsertStop(ctx context.Context, arg UpsertStopParams) error
