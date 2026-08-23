@@ -16,3 +16,4 @@ vendor/
 # OS
 .DS_Store
 etl.log
+*.tar.gz

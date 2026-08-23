@@ -105,3 +105,34 @@ default:
 return "минут"
 }
 }
+
+// FormatSubscriptions renders a person's subscribed stop+route pairs
+// with their upcoming arrivals, one section per subscription.
+func FormatSubscriptions(subs []matching.SubscribedArrival) string {
+if len(subs) == 0 {
+return "У тебя нет подписок."
+}
+
+var b strings.Builder
+now := time.Now()
+
+for i, sub := range subs {
+if i > 0 {
+b.WriteString("\n")
+}
+
+fmt.Fprintf(&b, "🔔 %s — %s\n", sub.RouteShortName, sub.StopName)
+
+if len(sub.Arrivals) == 0 {
+b.WriteString("нет ближайших рейсов\n")
+continue
+}
+
+for _, a := range sub.Arrivals {
+minutesLeft := minutesUntil(now, a.ArrivalTime)
+fmt.Fprintf(&b, "%s\n", formatMinutes(minutesLeft))
+}
+}
+
+return b.String()
+}

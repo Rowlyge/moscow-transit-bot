@@ -17,6 +17,7 @@ SELECT
     st.stop_id,
     st.arrival_time,
     st.departure_time,
+    r.route_id,
     r.route_short_name,
     t.trip_headsign,
     t.direction_id

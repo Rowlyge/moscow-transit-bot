@@ -21,7 +21,9 @@ maxNearbyStops     = 3
 maxNameMatches     = 5
 maxArrivalsPerStop = 3
 
-favoriteCallbackPrefix = "fav:"
+favoriteCallbackPrefix    = "fav:"
+subscribeCallbackPrefix   = "sub:"
+unsubscribeCallbackPrefix = "unsub:"
 )
 
 func main() {
@@ -83,6 +85,8 @@ case msg.Command() == "start":
 handleStart(bot, msg)
 case msg.Command() == "next":
 handleNext(ctx, bot, queries, msg)
+case msg.Command() == "subscriptions":
+handleSubscriptions(ctx, bot, queries, msg)
 case msg.Text != "":
 handleText(ctx, bot, queries, msg)
 default:
@@ -95,7 +99,8 @@ text := "Привет! Отправь геолокацию, и я покажу �
 "Также можно:\n" +
 "— написать координаты текстом: 55.566212, 37.406062\n" +
 "— написать название остановки: Зимёнковская улица\n\n" +
-"Нажми ⭐ под остановкой, чтобы сохранить её как избранную — дальше просто пиши /next."
+"Нажми ⭐, чтобы сохранить остановку — дальше просто пиши /next.\n" +
+"Нажми 🔔 под конкретным рейсом, чтобы подписаться на маршрут — список подписок в /subscriptions."
 
 locationBtn := tgbotapi.NewKeyboardButtonLocation("📍 Отправить геопозицию")
 keyboard := tgbotapi.NewReplyKeyboard(tgbotapi.NewKeyboardButtonRow(locationBtn))
@@ -173,12 +178,58 @@ return
 sendStopResults(bot, msg.Chat.ID, []matching.StopResult{result})
 }
 
-// handleCallback handles taps on a "⭐ save this stop" button, saving
-// that stop as the user's favorite.
-func handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, queries *db.Queries, cb *tgbotapi.CallbackQuery) {
-if !strings.HasPrefix(cb.Data, favoriteCallbackPrefix) {
+func handleSubscriptions(ctx context.Context, bot *tgbotapi.BotAPI, queries *db.Queries, msg *tgbotapi.Message) {
+subs, err := queries.ListSubscriptionsForUser(ctx, msg.From.ID)
+if err != nil {
+log.Printf("listing subscriptions failed for chat %d: %v", msg.Chat.ID, err)
+bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не получилось загрузить подписки."))
 return
 }
+
+if len(subs) == 0 {
+bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "У тебя нет подписок. Найди остановку и нажми 🔔 под нужным рейсом."))
+return
+}
+
+results, err := matching.ArrivalsForSubscriptions(ctx, queries, subs, maxArrivalsPerStop)
+if err != nil {
+log.Printf("loading subscription arrivals failed for chat %d: %v", msg.Chat.ID, err)
+bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не получилось загрузить рейсы по подпискам."))
+return
+}
+
+send(bot, msg.Chat.ID, telegram.FormatSubscriptions(results))
+
+// One "unsubscribe" button per subscription, so the person can prune
+// individual entries without retyping the search flow.
+var rows [][]tgbotapi.InlineKeyboardButton
+for _, sub := range subs {
+label := fmt.Sprintf("❌ %s — %s", sub.RouteShortName, sub.StopName)
+data := fmt.Sprintf("%s%s:%s", unsubscribeCallbackPrefix, sub.StopID, sub.RouteID)
+rows = append(rows, tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData(label, data)))
+}
+keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+unsubMsg := tgbotapi.NewMessage(msg.Chat.ID, "Отменить подписку:")
+unsubMsg.ReplyMarkup = keyboard
+if _, err := bot.Send(unsubMsg); err != nil {
+log.Printf("sending unsubscribe buttons: %v", err)
+}
+}
+
+// handleCallback dispatches inline button taps by their data prefix:
+// "⭐ save favorite", "🔔 subscribe to a route", "❌ unsubscribe".
+func handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, queries *db.Queries, cb *tgbotapi.CallbackQuery) {
+switch {
+case strings.HasPrefix(cb.Data, favoriteCallbackPrefix):
+handleFavoriteCallback(ctx, bot, queries, cb)
+case strings.HasPrefix(cb.Data, subscribeCallbackPrefix):
+handleSubscribeCallback(ctx, bot, queries, cb)
+case strings.HasPrefix(cb.Data, unsubscribeCallbackPrefix):
+handleUnsubscribeCallback(ctx, bot, queries, cb)
+}
+}
+
+func handleFavoriteCallback(ctx context.Context, bot *tgbotapi.BotAPI, queries *db.Queries, cb *tgbotapi.CallbackQuery) {
 stopID := strings.TrimPrefix(cb.Data, favoriteCallbackPrefix)
 
 err := queries.UpsertFavorite(ctx, db.UpsertFavoriteParams{
@@ -186,26 +237,86 @@ TelegramUserID: cb.From.ID,
 StopID:         stopID,
 })
 
-callbackConfig := tgbotapi.NewCallback(cb.ID, "")
+answer := tgbotapi.NewCallback(cb.ID, "")
 if err != nil {
 log.Printf("saving favorite for user %d: %v", cb.From.ID, err)
-callbackConfig.Text = "Не получилось сохранить, попробуй ещё раз."
+answer.Text = "Не получилось сохранить, попробуй ещё раз."
 } else {
-callbackConfig.Text = "Сохранено ⭐ Теперь пиши /next"
+answer.Text = "Сохранено ⭐ Теперь пиши /next"
 }
-if _, err := bot.Request(callbackConfig); err != nil {
+if _, err := bot.Request(answer); err != nil {
+log.Printf("answering callback: %v", err)
+}
+}
+
+// parseStopRouteData splits "<stop_id>:<route_id>" as used in
+// subscribe/unsubscribe callback_data.
+func parseStopRouteData(data string) (stopID, routeID string, ok bool) {
+parts := strings.SplitN(data, ":", 2)
+if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+return "", "", false
+}
+return parts[0], parts[1], true
+}
+
+func handleSubscribeCallback(ctx context.Context, bot *tgbotapi.BotAPI, queries *db.Queries, cb *tgbotapi.CallbackQuery) {
+stopID, routeID, ok := parseStopRouteData(strings.TrimPrefix(cb.Data, subscribeCallbackPrefix))
+answer := tgbotapi.NewCallback(cb.ID, "")
+if !ok {
+answer.Text = "Что-то пошло не так."
+bot.Request(answer)
+return
+}
+
+err := queries.UpsertSubscription(ctx, db.UpsertSubscriptionParams{
+TelegramUserID: cb.From.ID,
+StopID:         stopID,
+RouteID:        routeID,
+})
+if err != nil {
+log.Printf("saving subscription for user %d: %v", cb.From.ID, err)
+answer.Text = "Не получилось подписаться, попробуй ещё раз."
+} else {
+answer.Text = "Подписка оформлена 🔔 Список — в /subscriptions"
+}
+if _, err := bot.Request(answer); err != nil {
+log.Printf("answering callback: %v", err)
+}
+}
+
+func handleUnsubscribeCallback(ctx context.Context, bot *tgbotapi.BotAPI, queries *db.Queries, cb *tgbotapi.CallbackQuery) {
+stopID, routeID, ok := parseStopRouteData(strings.TrimPrefix(cb.Data, unsubscribeCallbackPrefix))
+answer := tgbotapi.NewCallback(cb.ID, "")
+if !ok {
+answer.Text = "Что-то пошло не так."
+bot.Request(answer)
+return
+}
+
+err := queries.DeleteSubscription(ctx, db.DeleteSubscriptionParams{
+TelegramUserID: cb.From.ID,
+StopID:         stopID,
+RouteID:        routeID,
+})
+if err != nil {
+log.Printf("deleting subscription for user %d: %v", cb.From.ID, err)
+answer.Text = "Не получилось отменить подписку."
+} else {
+answer.Text = "Подписка отменена"
+}
+if _, err := bot.Request(answer); err != nil {
 log.Printf("answering callback: %v", err)
 }
 }
 
 func handleUnknown(bot *tgbotapi.BotAPI, msg *tgbotapi.Message) {
-send(bot, msg.Chat.ID, "Отправь геолокацию 🚌, координаты (55.566212, 37.406062) или название остановки. /next — избранная остановка.")
+send(bot, msg.Chat.ID, "Отправь геолокацию 🚌, координаты (55.566212, 37.406062) или название остановки.\n/next — избранная остановка. /subscriptions — твои подписки на маршруты.")
 }
 
-// sendStopResults sends the formatted arrivals text, then (if there's
-// more than one stop, or the single stop has no favorite-worthy
-// distinction) a single message with one inline "save as favorite"
-// button per stop, so tapping saves that exact stop_id.
+// sendStopResults sends the formatted arrivals text, then a message
+// with "⭐ save favorite" buttons (one per stop), then a message with
+// "🔔 subscribe" buttons (one per unique stop+route with upcoming
+// arrivals) so the person can pick exactly which route to follow.
 func sendStopResults(bot *tgbotapi.BotAPI, chatID int64, results []matching.StopResult) {
 send(bot, chatID, telegram.FormatArrivals(results))
 
@@ -213,14 +324,17 @@ if len(results) == 0 {
 return
 }
 
+sendFavoriteButtons(bot, chatID, results)
+sendSubscribeButtons(bot, chatID, results)
+}
+
+func sendFavoriteButtons(bot *tgbotapi.BotAPI, chatID int64, results []matching.StopResult) {
 var rows [][]tgbotapi.InlineKeyboardButton
 for i, stop := range results {
 label := fmt.Sprintf("⭐ %s", stop.StopName)
 if stop.DistanceMeters != nil {
 label = fmt.Sprintf("⭐ %s (%s)", stop.StopName, formatShortDistance(*stop.DistanceMeters))
 } else if hasDuplicateName(results, stop.StopName) {
-// Disambiguate identically-named stops (e.g. two directions
-// of the same physical stop) when there's no distance to show.
 label = fmt.Sprintf("⭐ %s #%d", stop.StopName, i+1)
 }
 
@@ -233,6 +347,51 @@ msg := tgbotapi.NewMessage(chatID, "Сохранить как избранную
 msg.ReplyMarkup = keyboard
 if _, err := bot.Send(msg); err != nil {
 log.Printf("sending favorite buttons: %v", err)
+}
+}
+
+// sendSubscribeButtons offers one button per unique (stop, route) pair
+// that actually has upcoming arrivals — subscribing to a route with no
+// data right now wouldn't be useful.
+func sendSubscribeButtons(bot *tgbotapi.BotAPI, chatID int64, results []matching.StopResult) {
+type stopRoute struct {
+stopID, stopName, routeID, routeShortName string
+}
+
+seen := make(map[string]bool)
+var options []stopRoute
+for _, stop := range results {
+for _, a := range stop.Arrivals {
+key := stop.StopID + ":" + a.RouteID
+if seen[key] {
+continue
+}
+seen[key] = true
+options = append(options, stopRoute{
+stopID:         stop.StopID,
+stopName:       stop.StopName,
+routeID:        a.RouteID,
+routeShortName: a.RouteShortName,
+})
+}
+}
+
+if len(options) == 0 {
+return
+}
+
+var rows [][]tgbotapi.InlineKeyboardButton
+for _, opt := range options {
+label := fmt.Sprintf("🔔 %s (%s)", opt.routeShortName, opt.stopName)
+data := fmt.Sprintf("%s%s:%s", subscribeCallbackPrefix, opt.stopID, opt.routeID)
+rows = append(rows, tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData(label, data)))
+}
+
+keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+msg := tgbotapi.NewMessage(chatID, "Подписаться на рейс:")
+msg.ReplyMarkup = keyboard
+if _, err := bot.Send(msg); err != nil {
+log.Printf("sending subscribe buttons: %v", err)
 }
 }
 

@@ -9,6 +9,7 @@ import (
 )
 
 type Querier interface {
+	DeleteSubscription(ctx context.Context, arg DeleteSubscriptionParams) error
 	// transport_type can hold combined values like "Автобус, Трамвай", so we
 	// match with ILIKE rather than equality (see ETL notes on dataset 60662).
 	FindNearestStops(ctx context.Context, arg FindNearestStopsParams) ([]FindNearestStopsRow, error)
@@ -19,6 +20,7 @@ type Querier interface {
 	// for trips spanning midnight per GTFS spec), so lexicographic comparison
 	// and ordering work correctly here without casting to a time type.
 	GetUpcomingArrivalsForStop(ctx context.Context, arg GetUpcomingArrivalsForStopParams) ([]GetUpcomingArrivalsForStopRow, error)
+	ListSubscriptionsForUser(ctx context.Context, telegramUserID int64) ([]ListSubscriptionsForUserRow, error)
 	// Case-insensitive substring match on stop_name. Exact matches (after
 	// lowercasing) are ranked first, then shorter names (more likely to be
 	// what the person meant when they typed a partial name), then alphabetically
@@ -29,6 +31,7 @@ type Querier interface {
 	UpsertRoute(ctx context.Context, arg UpsertRouteParams) error
 	UpsertStop(ctx context.Context, arg UpsertStopParams) error
 	UpsertStopTime(ctx context.Context, arg UpsertStopTimeParams) error
+	UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) error
 	UpsertTrip(ctx context.Context, arg UpsertTripParams) error
 }
 

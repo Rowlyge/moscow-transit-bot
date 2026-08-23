@@ -37,6 +37,7 @@ time.Sunday:    "sunday",
 // Arrival is a single upcoming bus arrival at a specific stop, ready to
 // display to the user.
 type Arrival struct {
+RouteID        string
 RouteShortName string
 TripHeadsign   *string
 ArrivalTime    string // HH:MM:SS, as stored (can exceed 24:00:00)
@@ -105,6 +106,7 @@ return nil, fmt.Errorf("loading arrivals for stop %s: %w", stopID, err)
 arrivals := make([]Arrival, 0, len(rows))
 for _, r := range rows {
 arrivals = append(arrivals, Arrival{
+RouteID:        r.RouteID,
 RouteShortName: r.RouteShortName,
 TripHeadsign:   r.TripHeadsign,
 ArrivalTime:    r.ArrivalTime,
@@ -234,4 +236,57 @@ StopID:   stop.StopID,
 StopName: stop.StopName,
 Arrivals: arrivals,
 }, nil
+}
+
+// SubscribedArrival is one route's upcoming arrivals for a subscription,
+// grouped by the stop+route the user subscribed to.
+type SubscribedArrival struct {
+StopID         string
+StopName       string
+RouteID        string
+RouteShortName string
+Arrivals       []Arrival
+}
+
+// ArrivalsForSubscriptions loads upcoming arrivals for a user's saved
+// stop+route subscriptions, filtering each stop's arrivals down to only
+// the subscribed route.
+func ArrivalsForSubscriptions(ctx context.Context, queries *db.Queries, subs []db.ListSubscriptionsForUserRow, maxArrivals int32) ([]SubscribedArrival, error) {
+if len(subs) == 0 {
+return nil, nil
+}
+
+activeServiceIDs, err := activeServiceIDsToday(ctx, queries)
+if err != nil {
+return nil, err
+}
+
+results := make([]SubscribedArrival, 0, len(subs))
+for _, sub := range subs {
+allArrivals, err := arrivalsForStop(ctx, queries, sub.StopID, activeServiceIDs, maxArrivals*4) // fetch extra since we filter by route below
+if err != nil {
+return nil, err
+}
+
+var filtered []Arrival
+for _, a := range allArrivals {
+if a.RouteID != sub.RouteID {
+continue
+}
+filtered = append(filtered, a)
+if int32(len(filtered)) >= maxArrivals {
+break
+}
+}
+
+results = append(results, SubscribedArrival{
+StopID:         sub.StopID,
+StopName:       sub.StopName,
+RouteID:        sub.RouteID,
+RouteShortName: sub.RouteShortName,
+Arrivals:       filtered,
+})
+}
+
+return results, nil
 }

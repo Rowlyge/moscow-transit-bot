@@ -14,6 +14,7 @@ SELECT
     st.stop_id,
     st.arrival_time,
     st.departure_time,
+    r.route_id,
     r.route_short_name,
     t.trip_headsign,
     t.direction_id
@@ -38,6 +39,7 @@ type GetUpcomingArrivalsForStopRow struct {
 	StopID         string  `json:"stop_id"`
 	ArrivalTime    string  `json:"arrival_time"`
 	DepartureTime  string  `json:"departure_time"`
+	RouteID        string  `json:"route_id"`
 	RouteShortName string  `json:"route_short_name"`
 	TripHeadsign   *string `json:"trip_headsign"`
 	DirectionID    *int16  `json:"direction_id"`
@@ -64,6 +66,7 @@ func (q *Queries) GetUpcomingArrivalsForStop(ctx context.Context, arg GetUpcomin
 			&i.StopID,
 			&i.ArrivalTime,
 			&i.DepartureTime,
+			&i.RouteID,
 			&i.RouteShortName,
 			&i.TripHeadsign,
 			&i.DirectionID,

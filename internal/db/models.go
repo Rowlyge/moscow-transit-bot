@@ -70,6 +70,14 @@ type StopTimesStaging struct {
 	StopSequence   *int32  `json:"stop_sequence"`
 }
 
+type Subscription struct {
+	ID             int64              `json:"id"`
+	TelegramUserID int64              `json:"telegram_user_id"`
+	StopID         string             `json:"stop_id"`
+	RouteID        string             `json:"route_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type Trip struct {
 	TripID       string  `json:"trip_id"`
 	RouteID      string  `json:"route_id"`
