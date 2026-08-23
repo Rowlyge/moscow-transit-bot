@@ -205,3 +205,33 @@ Arrivals:       arrivals,
 
 return results, nil
 }
+
+// ErrStopNotFound is returned by ArrivalsForStopID when the given
+// stop_id doesn't exist in the stops table.
+var ErrStopNotFound = fmt.Errorf("stop not found")
+
+// ArrivalsForStopID looks up a single known stop_id (e.g. a saved
+// favorite) and returns its upcoming arrivals, without a geo or name
+// search step.
+func ArrivalsForStopID(ctx context.Context, queries *db.Queries, stopID string, maxArrivals int32) (StopResult, error) {
+stop, err := queries.GetStopByID(ctx, stopID)
+if err != nil {
+return StopResult{}, fmt.Errorf("%w: %s", ErrStopNotFound, stopID)
+}
+
+activeServiceIDs, err := activeServiceIDsToday(ctx, queries)
+if err != nil {
+return StopResult{}, err
+}
+
+arrivals, err := arrivalsForStop(ctx, queries, stopID, activeServiceIDs, maxArrivals)
+if err != nil {
+return StopResult{}, err
+}
+
+return StopResult{
+StopID:   stop.StopID,
+StopName: stop.StopName,
+Arrivals: arrivals,
+}, nil
+}

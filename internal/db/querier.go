@@ -13,6 +13,7 @@ type Querier interface {
 	// match with ILIKE rather than equality (see ETL notes on dataset 60662).
 	FindNearestStops(ctx context.Context, arg FindNearestStopsParams) ([]FindNearestStopsRow, error)
 	GetActiveServiceIDsToday(ctx context.Context, arg GetActiveServiceIDsTodayParams) ([]string, error)
+	GetFavorite(ctx context.Context, telegramUserID int64) (string, error)
 	GetStopByID(ctx context.Context, stopID string) (Stop, error)
 	// arrival_time is stored as TEXT (HH:MM:SS, zero-padded, can exceed 24:00:00
 	// for trips spanning midnight per GTFS spec), so lexicographic comparison
@@ -24,6 +25,7 @@ type Querier interface {
 	// for stable ordering among ties.
 	SearchStopsByName(ctx context.Context, arg SearchStopsByNameParams) ([]SearchStopsByNameRow, error)
 	UpsertCalendar(ctx context.Context, arg UpsertCalendarParams) error
+	UpsertFavorite(ctx context.Context, arg UpsertFavoriteParams) error
 	UpsertRoute(ctx context.Context, arg UpsertRouteParams) error
 	UpsertStop(ctx context.Context, arg UpsertStopParams) error
 	UpsertStopTime(ctx context.Context, arg UpsertStopTimeParams) error

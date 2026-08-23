@@ -27,6 +27,12 @@ type EtlCheckpoint struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Favorite struct {
+	TelegramUserID int64              `json:"telegram_user_id"`
+	StopID         string             `json:"stop_id"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Route struct {
 	RouteID        string  `json:"route_id"`
 	RouteShortName string  `json:"route_short_name"`
