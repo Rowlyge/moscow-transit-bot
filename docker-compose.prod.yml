@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: mtb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mtb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: moscow_transit_bot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  bot:
+    build:
+      context: .
+      target: bot
+    container_name: mtb-bot
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgres://mtb:${POSTGRES_PASSWORD}@postgres:5432/moscow_transit_bot?sslmode=disable
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+
+  etl:
+    build:
+      context: .
+      target: etl
+    container_name: mtb-etl
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgres://mtb:${POSTGRES_PASSWORD}@postgres:5432/moscow_transit_bot?sslmode=disable
+      MOS_API_KEY: ${MOS_API_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    profiles:
+      - manual
+
+volumes:
+  pgdata:

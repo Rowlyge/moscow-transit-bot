@@ -10,7 +10,7 @@ import (
 type Config struct {
 DatabaseURL      string
 MosAPIKey        string
-TelegramBotToken string
+TelegramBotToken string // optional here: only required by cmd/bot
 Socks5Proxy      string // optional: "host:port", empty means no proxy
 }
 
@@ -34,9 +34,8 @@ return nil, fmt.Errorf("DATABASE_URL is not set")
 if cfg.MosAPIKey == "" {
 return nil, fmt.Errorf("MOS_API_KEY is not set")
 }
-if cfg.TelegramBotToken == "" {
-return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN is not set")
-}
+// TELEGRAM_BOT_TOKEN is validated by cmd/bot itself (see main.go),
+// not here, since cmd/etl and cmd/matchtest don't need it.
 
 return cfg, nil
 }
