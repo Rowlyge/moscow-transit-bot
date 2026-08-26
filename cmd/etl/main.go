@@ -24,6 +24,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading config: %v", err)
 	}
+	if cfg.MosAPIKey == "" {
+		log.Fatal("MOS_API_KEY is not set")
+	}
 
 	ctx := context.Background()
 
